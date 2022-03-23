@@ -1,0 +1,810 @@
+# R markdown file
+---
+title: "Evolutionary Computational Finance Assignment"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+Portfolio assets selection:
+
+This portfolio was built considering a combination of metrics and alpha analysis. In addition, the portfolio was created
+thinking about an individual with a high-risk tolerance and seeking more significant returns than the average investor.
+Since equities constitute the portfolio, the portfolio's risk tends to be higher than other portfolios that include different asset classes such as bonds. Therefore, the metric used for selection was the market cap to help balance this risk. By choosing equities with large market caps, the risk tends to decrease since their volatility is usually lower, and these companies are generally well established in the market. Also, the portfolio is diversified across several sectors, including technology, financial services, construction, communication services, and consumer cyclical and discretionary to minimize the risk. Moreover, besides diversification, the portfolio scope is based on selecting companies that present alpha and competitive edges in the market they're inserted. All the companies are based in the United States; however, since they're considered global companies were exposed to several markets when invested in these equities.
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+library(tinytex)
+library(quantmod)
+library(tidyquant)
+library(plotly) 
+library(timetk) 
+library(tidyverse)
+```
+```{r message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+myStocks <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+getSymbols(myStocks, src="yahoo", from="2020-01-01", to="2021-01-01")
+
+myRetData <- data.frame(as.xts(merge(dailyReturn(TSLA),dailyReturn(CAT), 
+                                     dailyReturn(NVDA),dailyReturn(DIS), dailyReturn(AMZN), 
+                                     dailyReturn(NKE),dailyReturn(NFLX),dailyReturn(MA), 
+                                     dailyReturn(MSFT), dailyReturn(SPOT))))
+```
+After selecting the stocks, a genetic algorithm is being used to find the weights of each asset that would give the best Sharpe ratio. The fitness function employed is set to achieve the maximum Sharpe ratio making the portfolio as efficient as possible. The portfolio achieved an 80% return increase in value and had 0.30 risk, showing outstanding results. For our investors who aim to achieve greater returns and have a high-risk tolerance, this portfolio would be an excellent fit for his parameters.  
+```{r}
+portfolio_returns = function(x) {
+  port.returns = 0
+  
+  for (i in 1:length(x)) {
+    port.returns = port.returns + myRetData[,i] * x[i]
+  }
+  return (port.returns)
+}
+
+sharpe = function(x) {
+  port.returns = portfolio_returns(x)
+  return (mean(port.returns)/sqrt(var(port.returns)))
+}
+constraint = function(x) {
+  boundary_constr = (sum(x)-1)**2   
+  for (i in 1:length(x)) {
+    boundary_constr = boundary_constr + 
+      max(c(0,x[i]-1))**2 +  
+      max(c(0,-x[i]))**2     
+  }
+  return (boundary_constr)
+}
+```
+The optimization function is constructed to be implemented within the GA fitness function. 
+In this case, the function is set to achieve the maximum Sharpe ratio, therefore is doing multiplication of the Sharpe ratio by -1.
+```{r}
+obj = function(x) {
+  return (-sharpe(x)+100*constraint(x))
+}
+```
+In this section of code, the genetic algorithm uses the previous optimization function (obj) and constraints that prioritize the maximum Sharpe ratios. 
+Weights are assigned as real values, and the algorithm is being run up to 50000 iterations. After that, the algorithm will stop whenever we find the values that meet our conditions and remain the same for 50 consecutive transactions.
+```{r message=FALSE, warning=FALSE, results='hide'}
+library(GA)
+library(utils)
+ga_res = ga(
+  type="real-valued", 
+  function(x){-obj(x)}, 
+  lower = rep(0,ncol(myRetData)), 
+  upper = rep(1,ncol(myRetData)), 
+  maxiter = 50000, 
+  run=50, 
+  monitor=TRUE,
+  seed=1
+)
+
+```
+```{r message=FALSE, warning=FALSE,results='hide'}
+summary(ga_res)
+```
+The weights that this portfolio presents are not a surprise since their returns are so high. The most significant allocations are TSLA, NFLX, and MSFT, some of the year's best-performing stocks. Overall, all equities performed well during that year, and that is why we can observe almost the relative value of allocations in other stocks close to the most significant three.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+counts <-as.vector(summary(ga_res)$solution)
+barplot(counts, main="Weight Distribution",
+   xlab="Stocks",names.arg=c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT"),cex.names = 0.7)
+```
+
+```{r, include=FALSE}
+sol = as.vector(summary(ga_res)$solution)
+```
+```{r, include=FALSE}
+mean_ret <- colMeans(myRetData)
+cov_mat <- cov(myRetData) * 252
+wts <- c(0.1200401,0.1132774,0.06109894,0.009547201,0.1145415,
+           0.0982031,0.1649164,0.08056371,0.1209169,0.1188506)
+port_returns <- (sum(wts * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts))
+sharpe_ratio <- port_returns/port_risk
+all_wts <- matrix(nrow = 1,
+                  ncol = length(myStocks))
+portfolio_values <- tibble(Return = port_returns,
+                           Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+```
+
+```{r}
+head(portfolio_values)
+portreturnsGA <- Return.portfolio(myRetData, wts = wts, rebelance_on = "years")
+GA_Portfolio <- Return.portfolio(myRetData, wts = wts, rebelance_on = "years", wealth.index = T)
+plot(GA_Portfolio)
+```
+
+Portfolio based on the optimized weights / 2021 - 2022
+
+
+Using the previous weights, we run the same fitness function but this time for the 2021/2022 year (future data) to identify the returns that this portfolio would have in the future using the same strategy.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyquant)
+library(plotly) 
+library(timetk) 
+library(tidyverse)
+tick <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+price_data <- tq_get(tick,from = '2021-01-01',to = '2022-01-01',
+                     get = 'stock.prices')
+
+log_ret_tidy <- price_data %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,mutate_fun = periodReturn,period = 'daily',
+               col_rename = 'ret',type = 'log')
+
+log_ret_xts <- log_ret_tidy %>%
+  spread(symbol, value = ret) %>%
+  tk_xts()
+
+mean_ret <- colMeans(log_ret_xts)
+cov_mat <- cov(log_ret_xts) * 252
+
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+weights <- c(0.1200401,0.1132774,0.06109894,0.009547201,0.1145415,0.0982031,0.1649164,
+         0.08056371,0.1209169,0.1188506)
+weights <- weights/sum(weights)
+port_returns <- (sum(weights * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(weights) %*% (cov_mat %*% weights))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,
+                           Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+```
+The performance wasn’t as good for the optimized portfolio as the first one. The return only achieved a value of 0.2, substantially low assuming the investor intent.
+```{r}
+
+head(portfolio_values)
+#PLOT
+portreturnsOptimised <- Return.portfolio(log_ret_xts, weights = weights, rebelance_on = "years")
+Optimised_Portfolio <- Return.portfolio(log_ret_xts, weights = weights, rebelance_on = "years", wealth.index = T)
+plot(Optimised_Portfolio)
+```
+Random and Naive Portolios
+
+For the following part, both random portfolios and Naïve portfolios were identified. Firstly, random weights were created across 5000 different portfolios to give a good overview of the potential weight combinations. For the purposes of comparison, both max Sharpe ratio and min variance portfolios were chosen, and their returns calculated.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyquant) 
+library(tinytex)
+library(plotly) 
+library(timetk)
+library(tidyverse)
+tick <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+price_data <- tq_get(tick,from = '2021-01-01',to = '2022-01-01',get = 'stock.prices')
+log_ret_tidy <- price_data %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,mutate_fun = periodReturn,period = 'daily',col_rename = 'ret',type = 'log')
+log_ret_xts <- log_ret_tidy %>%
+  spread(symbol, value = ret) %>%
+  tk_xts()
+mean_ret <- colMeans(log_ret_xts)
+cov_mat <- cov(log_ret_xts) * 252
+wts <- runif(n = length(tick))
+wts <- wts/sum(wts)
+port_returns <- (sum(wts * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts))
+sharpe_ratio <- port_returns/port_risk
+num_port <- 5000
+all_wts <- matrix(nrow = num_port,ncol = length(tick))
+port_returns <- vector('numeric', length = num_port)
+port_risk <- vector('numeric', length = num_port)
+sharpe_ratio <- vector('numeric', length = num_port)
+
+for (i in seq_along(port_returns)) {
+  wts <- runif(length(tick))
+  wts <- wts/sum(wts)
+  all_wts[i,] <- wts
+  port_ret <- sum(wts * mean_ret)
+  port_ret <- ((port_ret + 1)^252) - 1
+  port_returns[i] <- port_ret
+  port_sd <- sqrt(t(wts) %*% (cov_mat  %*% wts))
+  port_risk[i] <- port_sd
+  sr <- port_ret/port_sd
+  sharpe_ratio[i] <- sr
+  
+}
+portfolio_values <- tibble(Return = port_returns,Risk = port_risk,SharpeRatio = sharpe_ratio)
+```
+Identify the portfolios of interest.
+
+When identifying the maximum Sharpe ratio portfolio out of the random weights, we can 
+observe that the returns weren't as good as the previous ones. However, the Sharp Ratio 
+has a high value making a good balance between risk/return.
+Regarding the minimum variance portfolio, the portfolio performance in terms of risk was low, which is the priority. However, for the investor intent, this portfolio is not ideal.
+```{r}
+min_var <- portfolio_values[which.min(portfolio_values$Risk),]
+max_sr <- portfolio_values[which.max(portfolio_values$SharpeRatio),]
+print(max_sr)
+print(min_var)
+```
+Naive Portfolio 
+
+The naive portfolio is characterized by equal weights across all
+the asset compositions. This portfolio performed very
+close to the minimum variance portfolio above regarding performance. We can conclude that this portfolio is
+not ideal for the investor due to the low returns.
+```{r message=FALSE, warning=FALSE,include=FALSE}
+wts_naive <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+port_returns <- (sum(wts_naive * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(wts_naive) %*% (cov_mat %*% wts_naive))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,Risk = port_risk,SharpeRatio = sharpe_ratio)
+```
+
+```{r}
+head(portfolio_values)
+#Plot
+portreturnsNaive <- Return.portfolio(log_ret_xts, weights = wts_naive, rebelance_on = "years")
+Naive_Portfolio <- Return.portfolio(log_ret_xts, weights = wts_naive, rebelance_on = "years", wealth.index = T)
+plot(Naive_Portfolio)
+```
+
+Maximizing Returns and Minimizing Risk Portfolio
+
+The following section will use different fitness functions to achieve different results. These functions will be used on both test and train data.
+The fitness function was changed for the returns maximization portfolios to identify the highest return values and then run within the GA to find the weights that met the criteria. For the portfolio, with the minimum risk values, the fitness function employed is set to see the lower
+variance values portfolio
+
+Maximizing Returns Test : 
+```{r message=FALSE, warning=FALSE, results='hide',include=FALSE}
+library(quantmod)
+library(tidyquant) 
+library(plotly) 
+library(timetk) 
+library(tidyverse)
+myStocks <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+getSymbols(myStocks, src="yahoo", from="2021-01-01", to="2022-01-01")
+myRetData <- data.frame(as.xts(merge(dailyReturn(TSLA),dailyReturn(CAT), 
+                                     dailyReturn(NVDA),dailyReturn(DIS), 
+                                     dailyReturn(AMZN), dailyReturn(NKE),
+                                     dailyReturn(NFLX),dailyReturn(MA), 
+                                     dailyReturn(MSFT),dailyReturn(SPOT))))
+```
+
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+portfolio_returns = function(x) {
+  port.returns = 0
+  
+  for (i in 1:length(x)) {
+    port.returns = port.returns + myRetData[,i] * x[i]
+  }
+  return (port.returns)
+}
+#We identify the maximum returns as the priority to implement in the following fitness function.
+high = function(x) {
+  port.returns = portfolio_returns(x)
+  return (max(port.returns))
+}
+constraint = function(x) {
+  boundary_constr = (sum(x)-1)**2 
+  for (i in 1:length(x)) {
+    boundary_constr = boundary_constr + 
+      max(c(0,x[i]-1))**2 +  # "x <= 1"aconstraint
+      max(c(0,-x[i]))**2     # "x >= 0" constraint
+  }
+  return (boundary_constr)
+}
+#OPTIMIZATION FUNCTION
+obj = function(x) {
+  # We want the maximum returns, so we multiply it by
+  # -1 to fit an optimization problem
+  return (-high(x)+100*constraint(x))
+}
+
+```
+
+```{r message=FALSE, warning=FALSE,results='hide'}
+library(GA)
+library(utils)
+ga_res = ga(type="real-valued", 
+  
+  # "ga" function performs maximization, so we must
+  # multiply the objective function by -1
+  function(x){-obj(x)}, lower = rep(0,ncol(myRetData)), upper = rep(1,ncol(myRetData)), 
+  maxiter = 50000, run=50, monitor=TRUE,seed=1
+)
+summary(ga_res)
+```
+In terms of the weights, we can correlate with the returns achieved. The returns were so low for a portfolio that maximizes the returns because some of the most prominent performers in the current year have low allocation.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+counts <-as.vector(summary(ga_res)$solution)
+barplot(counts, main="Weight Distribution",
+   xlab="Stocks",names.arg=c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT"),cex.names = 0.7)
+```
+ 
+```{r,include=FALSE}
+# Store the resulting weights in a vector
+sol = as.vector(summary(ga_res)$solution)
+mean_ret <- colMeans(myRetData)
+cov_mat <- cov(myRetData) * 252
+port_returns <- (sum(sol * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(sol) %*% (cov_mat %*% sol))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,Risk = port_risk,SharpeRatio = sharpe_ratio)
+```
+When it comes to the Max Test portfolio, the returns weren't the best compared to other portfolios; however, the Sharpe ratio
+is high. As a result, this portfolio is not ideal for the investor.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(portfolio_values)
+portreturnsMaxTest <- Return.portfolio(myRetData, weights = sol, rebelance_on = "years")
+MaxTest_Portfolio <- Return.portfolio(myRetData, weights = sol, rebelance_on = "years", wealth.index = T)
+```
+
+Minimizing Risk Test
+```{r message=FALSE, warning=FALSE, results='hide',include=FALSE}
+library(quantmod)
+library(tidyquant) 
+library(plotly) 
+library(timetk) 
+library(tidyverse)
+myStocks <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+getSymbols(myStocks, src="yahoo", from="2021-01-01", to="2022-01-01")
+myRetData <- data.frame(as.xts(merge(dailyReturn(TSLA),dailyReturn(CAT), 
+                                     dailyReturn(NVDA),dailyReturn(DIS), 
+                                     dailyReturn(AMZN), dailyReturn(NKE),
+                                     dailyReturn(NFLX),dailyReturn(MA), 
+                                     dailyReturn(MSFT),dailyReturn(SPOT))))
+```
+
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+portfolio_returns = function(x) {
+  port.returns = 0
+  for (i in 1:length(x)) {
+    port.returns = port.returns + myRetData[,i] * x[i]
+  }
+  return (port.returns)
+}
+#calculate the lowest risk on the historical weighted portfolio returns.
+low = function(x) {
+  port.returns = portfolio_returns(x)
+  return (var(port.returns))
+  
+}
+constraint = function(x) {
+  boundary_constr = (sum(x)-1)**2  
+  for (i in 1:length(x)) {
+    boundary_constr = boundary_constr + 
+      max(c(0,x[i]-1))**2 +  
+      max(c(0,-x[i]))**2     
+  }
+  return (boundary_constr)
+}
+obj = function(x) {
+  # We want the minimize the risk, so use which.min
+  #to use the minimum values of the returns variance
+  return ((which.min(low(x)))+100*constraint(x))
+}
+library(GA)
+library(utils)
+ga_res = ga(
+  type="real-valued", function(x){-obj(x)}, lower = rep(0,ncol(myRetData)), upper = rep(1,ncol(myRetData)), 
+  maxiter = 50000, run=50, monitor=TRUE,seed=1
+)
+summary(ga_res)
+```
+When it comes to the portfolio weights, we can observe that most stocks have the same allocation. This will help reduce the risk and immensely reduce the returns expected from this portfolio. In addition, there’s a small percentage of distribution to TSLA, which was a top performer in that year.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+counts <-as.vector(summary(ga_res)$solution)
+barplot(counts, main="Weight Distribution",
+   xlab="Stocks",names.arg=c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT"),cex.names = 0.7)
+```
+
+```{r message=FALSE, warning=FALSE, results='hide',include=FALSE}
+sol = as.vector(summary(ga_res)$solution)
+mean_ret <- colMeans(myRetData)
+cov_mat <- cov(myRetData) * 252
+port_returns <- (sum(sol * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(sol) %*% (cov_mat %*% sol))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+```
+When it comes to the Min Test portfolio, the returns weren't high compared to other portfolios, meeting the expectations for a minimum variance portfolio.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(portfolio_values)
+portreturnsMinTest <- Return.portfolio(myRetData, weights = sol, rebelance_on = "years")
+MinTest_Portfolio <- Return.portfolio(myRetData, weights = sol, rebelance_on = "years", wealth.index = T)
+
+```
+Maximizing Returns Train
+```{r message=FALSE, warning=FALSE, results='hide',include=FALSE}
+library(quantmod)
+library(tidyquant) 
+library(plotly) 
+library(timetk) 
+library(tidyverse)
+myStocks <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+getSymbols(myStocks, src="yahoo", from="2020-01-01", to="2021-01-01")
+myRetData2 <- data.frame(as.xts(merge(dailyReturn(TSLA),dailyReturn(CAT), 
+                                     dailyReturn(NVDA),dailyReturn(DIS), 
+                                     dailyReturn(AMZN), dailyReturn(NKE),
+                                     dailyReturn(NFLX),dailyReturn(MA), 
+                                     dailyReturn(MSFT),dailyReturn(SPOT))))
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+portfolio_returns = function(x) {
+  port.returns = 0
+  for (i in 1:length(x)) {
+    port.returns = port.returns + myRetData2[,i] * x[i]
+  }
+  return (port.returns)
+}
+high = function(x) {
+  port.returns = portfolio_returns(x)
+  return (max(port.returns))
+}
+constraint = function(x) {
+  boundary_constr = (sum(x)-1)**2 
+  for (i in 1:length(x)) {
+    boundary_constr = boundary_constr + max(c(0,x[i]-1))**2 + max(c(0,-x[i]))**2     
+  }
+  return (boundary_constr)
+}
+obj = function(x) {
+  return (-high(x)+100*constraint(x))
+}
+library(GA)
+library(utils)
+ga_res = ga(
+  type="real-valued", function(x){-obj(x)}, lower = rep(0,ncol(myRetData2)), 
+  upper = rep(1,ncol(myRetData2)), maxiter = 50000, run=50, 
+  monitor=TRUE,seed=1
+)
+summary(ga_res)
+```
+Overall, the weights are well diversified, with more allocation in riskier assets, leading to greater returns. 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+counts <-as.vector(summary(ga_res)$solution)
+barplot(counts, main="Weight Distribution",
+   xlab="Stocks",names.arg=c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT"),cex.names = 0.7)
+```
+
+```{r,include=FALSE}
+sol = as.vector(summary(ga_res)$solution)
+mean_ret <- colMeans(myRetData2)
+cov_mat <- cov(myRetData2) * 252
+port_returns <- (sum(sol * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(sol) %*% (cov_mat %*% sol))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,Risk = port_risk,SharpeRatio = sharpe_ratio)
+```
+The returns were high and with an outstanding performance based on the Sharpe ratio for the Max train portfolio. This portfolio is
+a strong candidate to meet the investor criteria.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(portfolio_values)
+
+portreturnsMaxTrain <- Return.portfolio(myRetData2, weights = sol, rebelance_on = "years")
+MaxTrain_Portfolio <- Return.portfolio(myRetData2, weights = sol, rebelance_on = "years", wealth.index = T)
+```
+Minimizing Risk Train
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(quantmod)
+library(tidyquant) 
+library(plotly) 
+library(timetk) 
+library(tidyverse)
+myStocks <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
+getSymbols(myStocks, src="yahoo", from="2020-01-01", to="2021-01-01")
+myRetData2 <- data.frame(as.xts(merge(dailyReturn(TSLA),dailyReturn(CAT), 
+                                     dailyReturn(NVDA),dailyReturn(DIS), 
+                                     dailyReturn(AMZN), dailyReturn(NKE),
+                                     dailyReturn(NFLX),dailyReturn(MA), 
+                                     dailyReturn(MSFT),dailyReturn(SPOT))))
+
+portfolio_returns = function(x) {
+  port.returns = 0
+  for (i in 1:length(x)) {
+    port.returns = port.returns + myRetData2[,i] * x[i]
+  }
+  return (port.returns)
+}
+low = function(x) {
+  port.returns = portfolio_returns(x)
+  return (var(port.returns))
+}
+constraint = function(x) {
+  boundary_constr = (sum(x)-1)**2   
+  for (i in 1:length(x)) {
+    boundary_constr = boundary_constr + 
+      max(c(0,x[i]-1))**2 +  
+      max(c(0,-x[i]))**2     
+  }
+  return (boundary_constr)
+}
+obj = function(x) {
+  
+  return ((which.min(low(x)))+100*constraint(x))
+}
+library(GA)
+library(utils)
+ga_res = ga(
+  type="real-valued", 
+  function(x){-obj(x)}, 
+  lower = rep(0,ncol(myRetData2)), 
+  upper = rep(1,ncol(myRetData2)), 
+  maxiter = 50000, 
+  run=50, 
+  monitor=TRUE,
+  seed=1
+)
+summary(ga_res)
+```
+
+We can observe that the same strategy was implemented by giving a similar allocation to most stocks in this portfolio. This strategy helps reduce the risk, which is the priority.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+counts <-as.vector(summary(ga_res)$solution)
+barplot(counts, main="Weight Distribution",
+   xlab="Stocks",names.arg=c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT"),cex.names = 0.7)
+```
+
+
+```{r,include=FALSE}
+sol = as.vector(summary(ga_res)$solution)
+mean_ret <- colMeans(myRetData2)
+cov_mat <- cov(myRetData2) * 252
+port_returns <- (sum(sol * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(sol) %*% (cov_mat %*% sol))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+
+```
+The results are indeed surprising when it comes to the Min Train portfolio. The risk is low as expected, but the returns are very high
+since this portfolio tends to decrease the risk and usually the return. Although these returns are not enough to meet the investor criteria are still an outstanding performance.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(portfolio_values)
+portreturnsMinTrain <- Return.portfolio(myRetData2, weights = sol, rebelance_on = "years")
+MinTrain_Portfolio <- Return.portfolio(myRetData2, weights = sol, rebelance_on = "years", wealth.index = T)
+
+```
+MinTrain vs MaxTrain
+
+Both Min and Max Train portfolios had an outstanding performance in this specific time frame. However, the portfolio that fits the investment criteria is the MaxTrain. This portfolio gives the investor a good overview of how well he can potentially make greater returns over time.
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+plot((MinTrain_Portfolio),type="l",lwd=2)
+```
+```{r echo=FALSE}
+lines((MaxTrain_Portfolio),col="red")
+```
+MinTest vs MaxTest
+
+When it comes to Min and Max test portfolios, there is some critical key feature to identify. The max portfolio had an inferior performance in terms of returns which is not a good sign for the investor. This portfolio wasn't expected to give such small returns. On the other hand, the minimum test portfolio met the expectations with low risk and low returns.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+plot((MinTest_Portfolio),type="l",lwd=2)
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lines((MaxTest_Portfolio),col="red")
+```
+Naive vs Optimized vs MaxTest vs MinTest
+
+The following graph compares all the portfolios relevant to a specific time frame (2021/2022) and the investor criteria. 
+The random portfolios (min var and max sharp) are not being identified on the graph since their performance was the worst compared to the others. However, the chart shows that the highest portfolio return was the Max Test Portfolio, making it the ideal portfolio to the investor criteria.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+plot((Naive_Portfolio),type="l",lwd=2)
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lines((Optimised_Portfolio),col="green")
+lines((MaxTest_Portfolio),col="red")
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lines((MinTest_Portfolio),col="blue")
+```
+GA Extension Test and Train
+
+The following section will extend the models used above and use 50 different stocks from the SP500. These stocks were chosen to provide an accurate comparison between the performance of the american stocks previously chosen. Therefore, a GA was constructed to select the best assets according to the defined parameters. The GA will choose the best assets with the best returns in this particular case. While adapting the knapsack problem theory model, this section will be using the same foundations and logic for the problem.
+```{r message=FALSE, warning=FALSE, results='hide',include=FALSE}
+
+library(quantmod)
+library(tidyquant)
+library(tidyverse)
+library(tinytex)
+library(plotly) 
+library(timetk)
+library(GA)
+library(utils)
+
+tick <- c("ABBV","ABT","ACN","ADBE","AMAT","AMD","AMGN","AMZN","AVGO","AXP","BAC","CAT","COP",
+          "COST","CRM","CSCO","CVX","DHR","DIS","DUK","GS","HD","HON","IBM","INTC","JNJ",
+"JPM","KO","LLY","MA","MCD","MRK","MSFT","NFLX","NKE","NVDA","ORCL","PEP","PFE","PG",
+"QCOM","SPOT","TGT","TMO","TSLA","UNH","VZ","WFC","WMT","XOM")
+
+price_data <- tq_get(tick,from = '2021-01-01',to = '2022-01-01',get = 'stock.prices')
+
+log_ret_tidy <- price_data %>% group_by(symbol) %>% tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'daily',
+               col_rename = 'ret',
+               type = 'log')
+log_ret_xts <- log_ret_tidy %>% spread(symbol, value = ret) %>% tk_xts()
+head(log_ret_xts)
+mean_ret <- colMeans(log_ret_xts)
+print(round(mean_ret, 10))
+returns_stocks <- c(round(mean_ret,10))
+library(genalg)
+library(ggplot2)
+```
+
+Test 
+```{r message=FALSE, warning=FALSE, results='hide'}
+dataset <- data.frame(stock = c("ABBV","ABT","ACN","ADBE","AMAT","AMD","AMGN","AMZN","AVGO","AXP",
+                                "BAC","CAT","COP","COST","CRM","CSCO","CVX","DHR","DIS","DUK","GS",
+                                "HD","HON","IBM","INTC","JNJ","JPM","KO","LLY","MA","MCD","MRK","MSFT","NFLX",
+                                "NKE","NVDA","ORCL","PEP","PFE","PG","QCOM","SPOT","TGT","TMO","TSLA",
+                                "UNH","VZ","WFC","WMT","XOM"),
+              returns = c(returns_stocks),
+              weight = c(0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                         0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                         0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02)) 
+weightlimit <- 1
+evalFunc <- function(x) {
+  current_solution_returns <- x %*% dataset$returns
+  current_solution_weight <- x %*% dataset$weight
+  if (current_solution_weight > weightlimit) 
+    return(0) else return(current_solution_returns)
+}
+knapsackGA <- ga("binary", fitness = evalFunc, nBits = 50, popSize = 100, maxiter = 100,names=tick)
+summary(knapsackGA)
+best_vars_ga1=tick[knapsackGA@solution[1,]==1]
+best_vars_ga1
+
+```
+
+```{r message=FALSE, warning=FALSE, results='hide',include=FALSE}
+
+
+library(quantmod)
+tick <- c("ABBV","ABT","ACN","ADBE","AMAT","AMD","AMGN","AMZN","AVGO","AXP","BAC","CAT","COP",
+          "COST","CRM","CSCO","CVX","DHR","DIS","DUK","GS","HD","HON","IBM","INTC","JNJ",
+          "JPM","KO","LLY","MA","MCD","MRK","MSFT","NFLX","NKE","NVDA","ORCL","PEP","PFE","PG",
+          "QCOM","SPOT","TGT","TMO","TSLA","UNH","VZ","WFC","WMT","XOM")
+price_data <- tq_get(tick,from = '2021-01-01',to = '2022-01-01',get = 'stock.prices')
+log_ret_tidy <- price_data %>% group_by(symbol) %>% tq_transmute(select = adjusted,
+                                                                 mutate_fun = periodReturn,
+                                                                 period = 'daily',
+                                                                 col_rename = 'ret',
+                                                                 type = 'log')
+log_ret_xts <- log_ret_tidy %>% spread(symbol, value = ret) %>% tk_xts()
+head(log_ret_xts)
+mean_ret <- colMeans(log_ret_xts)
+print(round(mean_ret, 10))
+returns_stocks <- c(round(mean_ret,10))
+library(genalg)
+library(ggplot2)
+```
+
+Train
+```{r message=FALSE, warning=FALSE, results='hide'}
+dataset <- data.frame(stock = c("ABBV","ABT","ACN","ADBE","AMAT","AMD","AMGN","AMZN","AVGO","AXP",
+                                "BAC","CAT","COP","COST","CRM","CSCO","CVX","DHR","DIS","DUK","GS",
+                                "HD","HON","IBM","INTC","JNJ","JPM","KO","LLY","MA","MCD","MRK","MSFT","NFLX",
+                                "NKE","NVDA","ORCL","PEP","PFE","PG","QCOM","SPOT","TGT","TMO","TSLA",
+                                "UNH","VZ","WFC","WMT","XOM"),
+                      returns = c(returns_stocks),
+                      weight = c(0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                                 0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                                 0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02)) 
+weightlimit <- 1
+evalFunc <- function(x) {
+  current_solution_returns <- x %*% dataset$returns
+  current_solution_weight <- x %*% dataset$weight
+  if (current_solution_weight > weightlimit) 
+    return(0) else return(current_solution_returns)
+}
+knapsackGA <- ga("binary", fitness = evalFunc, nBits = 50, popSize = 100, maxiter = 100,names=tick)
+summary(knapsackGA)
+best_vars_ga2=tick[knapsackGA@solution[1,]==1]
+best_vars_ga2
+```
+
+Using both test and train periods we can identify that the one that performed the best was the Extended Test portfolio.
+
+
+Performance Test
+```{r message=FALSE, warning=FALSE,include=FALSE}
+#Performance Test
+library(quantmod)
+tick <- c("ABBV","ABT","ACN","ADBE","AMAT","AMD","AMGN","AMZN","AVGO","AXP","BAC","CAT","COP","COST","CRM","CSCO","CVX","DHR","DUK","GS","HD","HON","IBM","INTC","JNJ","JPM",
+          "KO","LLY","MA","MCD","MRK","MSFT","NFLX","NKE","NVDA","ORCL","PEP","PFE","PG","QCOM","TGT","TMO","TSLA","UNH","WFC","WMT","XOM")
+
+price_data <- tq_get(tick,from = '2021-01-01',to = '2022-01-01',get = 'stock.prices')
+log_ret_tidy <- price_data %>% group_by(symbol) %>% tq_transmute(select = adjusted,
+                                                                 mutate_fun = periodReturn,
+                                                                 period = 'daily',
+                                                                 col_rename = 'ret',
+                                                                 type = 'log')
+log_ret_xts <- log_ret_tidy %>% spread(symbol, value = ret) %>% tk_xts()
+wts <- c(0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                 0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                 0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+                 0.02,0.02,0.02,0.02,0.02,0.02,0.02)
+mean_ret <- colMeans(log_ret_xts)
+cov_mat <- cov(log_ret_xts) * 252
+port_returns <- (sum(wts * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values <- tibble(Return = port_returns,
+                           Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(portfolio_values)
+portreturnsExtTest <- Return.portfolio(log_ret_xts, weights = wts, rebelance_on = "years")
+ExtTest_Portfolio <- Return.portfolio(log_ret_xts, weights = wts, rebelance_on = "years", wealth.index = T)
+plot(ExtTest_Portfolio)
+```
+```{r message=FALSE, warning=FALSE,include=FALSE}
+#Peformance Train
+
+library(quantmod)
+tick <- c("ABBV","ABT","ACN","ADBE","AMAT","AMD","AMGN","AMZN","AVGO","AXP","BAC","CAT","COP",
+          "COST","CRM","CSCO","CVX","DHR","DIS","DUK","GS","HD","HON","IBM","INTC","JNJ",
+          "JPM","KO","LLY","MA","MCD","MRK","MSFT","NFLX","NKE","NVDA","ORCL","PEP","PFE","PG",
+          "QCOM","SPOT","TGT","TMO","TSLA","UNH","VZ","WFC","WMT")
+
+price_data <- tq_get(tick,from = '2020-01-01',to = '2021-01-01',get = 'stock.prices')
+log_ret_tidy <- price_data %>% group_by(symbol) %>% tq_transmute(select = adjusted,
+                                                                 mutate_fun = periodReturn,
+                                                                 period = 'daily',
+                                                                 col_rename = 'ret',
+                                                                 type = 'log')
+log_ret_xts <- log_ret_tidy %>% spread(symbol, value = ret) %>% tk_xts()
+wts2 <- c(0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+          0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+          0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02)
+mean_ret <- colMeans(log_ret_xts)
+cov_mat <- cov(log_ret_xts) * 252
+port_returns <- (sum(wts2 * mean_ret) + 1)^252 - 1
+port_risk <- sqrt(t(wts2) %*% (cov_mat %*% wts2))
+sharpe_ratio <- port_returns/port_risk
+portfolio_values2 <- tibble(Return = port_returns,
+                           Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+```
+
+Performance Train
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+head(portfolio_values2)
+portreturnsExtTrain <- Return.portfolio(log_ret_xts, weights = wts2, rebelance_on = "years")
+ExtTrain_Portfolio <- Return.portfolio(log_ret_xts, weights = wts2, rebelance_on = "years", wealth.index = T)
+plot(ExtTrain_Portfolio)
+
+```
+Ext Test vs Max Test vs Naive vs Optimized vs Random
+
+After evaluating all the portfolio performances, we can then identify which one is the one that will fit the investment criteria the best. The random portfolios had the poorest performance. Therefore, they were excluded from the graph. Both Naive, Optimized, and Max test portfolios had a similar performance, giving approximately a 20 percent increase in value. The portfolio that provided the best returns was the Extended Test Portfolio, with a 32% increase in value. The value increase could be justified by looking at the equity market in the USA in the time frame. The overall market had an outstanding performance this year, and many of the stocks included had great returns individually. Moreover, the fact that this portfolio has 50 different stocks helped immensely reduce the risk. Therefore, it can be concluded that the Extended Test Portfolio is the one that fits better the investor criteria.
+```{r message=FALSE, warning=FALSE, include=FALSE}
+plot((ExtTest_Portfolio),type="l",lwd=2)
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lines((MaxTest_Portfolio),col="red")
+lines((Optimised_Portfolio),col="violet")
+```
+```{r echo=FALSE}
+lines((Naive_Portfolio),col="green")
+```
+
+
+
+
