@@ -176,7 +176,7 @@ library(tidyverse)
 tick <- c("TSLA","CAT","NVDA","DIS","AMZN","NKE","NFLX","MA","MSFT","SPOT")
 price_data <- tq_get(tick,from = '2021-01-01',to = '2022-01-01',get = 'stock.prices')
 log_ret_tidy <- price_data %>%
-  group_by(symbol) %>%
+  group_by(symbol) %>% 
   tq_transmute(select = adjusted,mutate_fun = periodReturn,period = 'daily',col_rename = 'ret',type = 'log')
 log_ret_xts <- log_ret_tidy %>%
   spread(symbol, value = ret) %>%
